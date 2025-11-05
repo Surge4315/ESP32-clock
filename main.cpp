@@ -42,17 +42,14 @@ bool EUSummerTime(int day, int month, int wday)
 
     //looking for last sunday of march or october
     int lastSunday;
-    if (month == 3)
-    {
-        // last march sunday
-        lastSunday = 31 - ((5 + wday) % 7);
+     if (month == 3) {
+        // last sunday of march
+        lastSunday = 31 - ((wday + (31 - day)) % 7);
         return (day >= lastSunday);
-    }
-    else
-    {
-        // last october sunday
-        lastSunday = 31 - ((5 + wday) % 7);
-        return !(day >= lastSunday);
+    } else { // month == 10
+        // last sunday of october
+        lastSunday = 31 - ((wday + (31 - day)) % 7);
+        return (day < lastSunday);
     }
 }
 
