@@ -31,6 +31,7 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, SCREEN_SCL, SCR
 WiFiUDP ntpUDP;
 NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 3600000);
 
+//TODO add hours cause now it only counts days for summertime calculation maybe someday
 // last sunday of march and october
 bool EUSummerTime(int day, int month, int wday)
 {
@@ -44,7 +45,13 @@ bool EUSummerTime(int day, int month, int wday)
     int lastSunday;
      if (month == 3) {
         // last sunday of march
-        lastSunday = 31 - ((wday + (31 - day)) % 7);
+        //takes day of month
+        //subtracts it from 31 to get days left in month
+        //adds weekday to that to get last weekday of month
+        //because if we have a weekday and add days to it and modulo by 7 we just get next weekdays
+        //mods by 7 to get offset to last sunday
+        //subtracts offset from 31 to get date of last sunday
+        lastSunday = 31 - ((wday + (31 - day)) % 7); //takes day of month and subtracts it from 31 to get days left in month, adds weekday to that and mods by 7 to get offset to last sunday
         return (day >= lastSunday);
     } else { // month == 10
         // last sunday of october
