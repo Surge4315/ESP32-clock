@@ -13,6 +13,7 @@
 const int buttonPin = 0;
 int hour = 3600;
 int offset = 2 * hour; // base time offset GMT+2 for Cracow
+int UStime = 0;
 
 volatile int clockCounter = 0;
 
@@ -29,71 +30,82 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, U8X8_PIN_NONE, SCREEN_SCL, SCR
 
 // NTP
 WiFiUDP ntpUDP;
-NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 3600000);
+NTPClient timeClient(ntpUDP, "pool.ntp.org", 0, 60000); //update every 60 seconds
 
-//TODO add hours cause now it only counts days for summertime calculation maybe someday
 // last sunday of march and october
-bool EUSummerTime(int day, int month, int wday)
+bool EUSummerTime(int day, int month, int wday, int hour)
 {
     // wday: 0 = sunday, 1 = monday, ..., 6 = saturday
+    // hour: 0..23 (UTC)
+
     if (month < 3 || month > 10)
-        return false; // january–februaru and november–december -> winter time
+        return false; // january–february and november–december -> winter time
     if (month > 3 && month < 10)
         return true; // april–september -> summer time
 
-    //looking for last sunday of march or october
     int lastSunday;
-     if (month == 3) {
+    if (month == 3)
+    {
         // last sunday of march
-        //takes day of month
-        //subtracts it from 31 to get days left in month
-        //adds weekday to that to get last weekday of month
-        //because if we have a weekday and add days to it and modulo by 7 we just get next weekdays
-        //mods by 7 to get offset to last sunday
-        //subtracts offset from 31 to get date of last sunday
-        lastSunday = 31 - ((wday + (31 - day)) % 7); //takes day of month and subtracts it from 31 to get days left in month, adds weekday to that and mods by 7 to get offset to last sunday
-        return (day >= lastSunday);
-    } else { // month == 10
+        // takes day of month
+        // subtracts it from 31 to get days left in month
+        // adds weekday to that to get last weekday of month
+        // because if we have a weekday and add days to it and modulo by 7 we just get next weekdays
+        // mods by 7 to get offset to last sunday
+        // subtracts offset from 31 to get date of last sunday
+        lastSunday = 31 - ((wday + (31 - day)) % 7);
+        // DST starts at 01:00 UTC on last Sunday of March
+        if (day > lastSunday)
+            return true;
+        if (day < lastSunday)
+            return false;
+        return hour >= 1; // on last Sunday, summer time starts at 01:00 UTC
+    }
+    else
+    { // month == 10
         // last sunday of october
         lastSunday = 31 - ((wday + (31 - day)) % 7);
-        return (day < lastSunday);
+        // DST ends at 01:00 UTC on last Sunday of October
+        if (day < lastSunday)
+            return true;
+        if (day > lastSunday)
+            return false;
+        return hour < 1; // on last Sunday, summer time ends at 01:00 UTC
     }
 }
 
 // second sunday of march to first sunday of november
-bool USSummerTime(int day, int month, int wday)
+bool USSummerTime(int day, int month, int wday, int hour)
 {
-    // wday: 0 = sunday, 1 = monday, ..., 6 = saturday
     if (month < 3 || month > 11)
-        return false; // January–February and December -> standard time
+        return false; // Jan, Feb, Dec -> standard time
     if (month > 3 && month < 11)
-        return true; // April–October -> daylight time
+        return true;  // Apr–Oct -> daylight time
 
     int firstSunday, secondSunday;
 
     if (month == 3)
     {
-        // find weekday of March 1 based on given day and weekday
+        // find weekday of March 1
         int march1_wday = (wday - ((day - 1) % 7) + 7) % 7;
-
-        // first Sunday of March
         firstSunday = (march1_wday == 0) ? 1 : (8 - march1_wday);
-        // second Sunday
         secondSunday = firstSunday + 7;
 
-        return (day >= secondSunday);
+        if (day > secondSunday) return true;
+        if (day < secondSunday) return false;
+        return hour >= 2; // DST starts at 2:00 AM local time
     }
     else // month == 11
     {
         // find weekday of November 1
         int nov1_wday = (wday - ((day - 1) % 7) + 7) % 7;
-        // first Sunday of November
         firstSunday = (nov1_wday == 0) ? 1 : (8 - nov1_wday);
 
-        return !(day >= firstSunday);
+        if (day < firstSunday) return true;
+        if (day > firstSunday) return false;
+        return hour < 2; // DST ends at 2:00 AM local time
     }
 }
-
 
 // interrupt handler for button press with debounce
 void IRAM_ATTR handleButtonPress()
@@ -128,14 +140,15 @@ void setup()
 
 void loop()
 {
-
-    // first time getting for time offset calculation
+    // starting with no offset to get current time in UTC
+    timeClient.setTimeOffset(0);
+    timeClient.update();
     unsigned long currentEpoch = timeClient.getEpochTime();
     time_t currentTime = (time_t)currentEpoch;
-    struct tm *timeInfo = localtime(&currentTime);
+    struct tm *timeInfo = gmtime(&currentTime);
 
     int EUtime = 0;
-    if (EUSummerTime(timeInfo->tm_mday, timeInfo->tm_mon + 1, timeInfo->tm_wday))
+    if (EUSummerTime(timeInfo->tm_mday, timeInfo->tm_mon + 1, timeInfo->tm_wday, timeInfo->tm_hour))
     {
         EUtime = 0; // if summertime than no change
     }
@@ -143,17 +156,9 @@ void loop()
     {
         EUtime = hour; // if no summertime then we subtract one hour
     }
-    int UStime = 0;
-    if (USSummerTime(timeInfo->tm_mday, timeInfo->tm_mon + 1, timeInfo->tm_wday))
-    {
-        UStime = 0; // if summertime time than no change
-    }
-    else
-    {
-        UStime = hour; // if no summertime time then we subtract one hour
-    }
 
-    if (buttonPressed)
+   
+        if (buttonPressed)
     {
         buttonPressed = false; // flag reset
 
@@ -164,37 +169,49 @@ void loop()
     {
     case 0:
         offset = 2 * hour - EUtime; // Cracow
-        break; 
+        break;
     case 1:
         offset = 3 * hour - EUtime; // Pitesti
-        break; 
+        break;
     case 2:
         offset = 8 * hour; // Manila
-        break; 
+        break;
     case 3:
         offset = 9 * hour; // Tokyo
-        break; 
+        break;
     case 4:
-        offset = -7 * hour - UStime; // Los Angeles
-        break; 
+        offset = -7 * hour; // Los Angeles
+        break;
     case 5:
-        offset = -5 * hour - UStime;// New Orleans
-        break; 
+        offset = -5 * hour; // New Orleans
+        break;
     case 6:
         offset = hour - EUtime; // London
-        break; 
+        break;
     default:
         offset = 0; // Greenwich Mean Time
-        break; 
+        break;
     }
-
     timeClient.setTimeOffset(offset);
-    timeClient.update(); //updates time after set interval
+
+     //for some godforsaken reason US uses localtime and not utc so this hellish contraption operates on hope nobody turns it on during transition hour, but should fix itself later so hurray
+    if (USSummerTime(timeInfo->tm_mday, timeInfo->tm_mon + 1, timeInfo->tm_wday, timeInfo->tm_hour))
+    {
+        UStime = 0; // if summertime time than no change
+    }
+    else
+    {
+        UStime = hour; // if no summertime time then we subtract one hour
+    }
+    if(clockCounter == 4 || clockCounter == 5) // Los Angeles or New Orleans
+    {
+        timeClient.setTimeOffset(offset - UStime);
+    }
 
     // second time getting for proper display
     currentEpoch = timeClient.getEpochTime();
     currentTime = (time_t)currentEpoch;
-    timeInfo = localtime(&currentTime);
+    timeInfo = gmtime(&currentTime);
 
     int hours = timeInfo->tm_hour;
     int minutes = timeInfo->tm_min;
