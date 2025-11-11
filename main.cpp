@@ -180,10 +180,10 @@ void loop()
         offset = 9 * hour; // Tokyo
         break;
     case 4:
-        offset = -7 * hour; // Los Angeles
+        offset = -7 * hour - UStime; // Los Angeles
         break;
     case 5:
-        offset = -5 * hour; // New Orleans
+        offset = -5 * hour - UStime; // New Orleans
         break;
     case 6:
         offset = hour - EUtime; // London
@@ -202,10 +202,6 @@ void loop()
     else
     {
         UStime = hour; // if no summertime time then we subtract one hour
-    }
-    if(clockCounter == 4 || clockCounter == 5) // Los Angeles or New Orleans
-    {
-        timeClient.setTimeOffset(offset - UStime);
     }
 
     // second time getting for proper display
